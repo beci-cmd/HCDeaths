@@ -380,6 +380,8 @@ function HCDeath:RemovePlayerDeath(name) -- Called by Toast
 	end
 end
 
+local hcdeathFriends = {}
+
 function HCDeath:LogDeath() -- Called by add friend system message
 	for _, hcdeath in pairs(deaths) do
 		if not hcdeath.playerClass then
@@ -462,6 +464,8 @@ end
 function HCDeath:AddFriends()
 	for _, hcdeath in pairs(deaths) do
 		if not HCDeath:isFriend(hcdeath.playerName) then
+			-- Mark this name was added to friendlist by addon
+			hcdeathFriends[hcdeath.playerName] = 1
 			AddFriend(hcdeath.playerName)
 			hcdeath.addedPlayer = true
 		else
@@ -474,6 +478,8 @@ function HCDeath:AddFriends()
 
 		if (hcdeath.deathType == "PVP") then
 			if not HCDeath:isFriend(hcdeath.killerName) then
+				-- Mark this name was added to friendlist by addon
+				hcdeathFriends[hcdeath.killerName] = 1
 				AddFriend(hcdeath.killerName)
 				hcdeath.addedKiller = true
 			else
@@ -545,14 +551,145 @@ function HCDeath:extractLinks(str)
     return result
 end
 
+function HCDeath:handleSystemMessages(message)
+	-- Examples of Turtle WoW HC progress messages:
+	-- "PLAYERNAME has reached level 20/30/40/50 in Hardcore mode! Their ascendance towards immortality continues, however, so do the dangers they will face.
+	-- "PLAYERNAME has transcended death and reached level 60 on Hardcore mode without dying once! PLAYERNAME shall henceforth be known as the Immortal!"
+
+	-- Examples of Turtle WoW Inferno messages:
+	-- Started = "PLAYERNAME has laughed in the face of death in the Hardcore challenge. PLAYERNAME has begun the Inferno Challenge!"
+	-- PVE (*does not show PLAYERNAME*) = "A tragedy has occurred. Inferno character has fallen to MOBNAME1 MOBNAME2 (level KILLERLEVEL) at level PLAYERLEVEL..."
+	-- NAT = ??
+	-- PVP = ??
+
+	-- Examples of Turtle WoW Hardcore messages:
+	-- PVE = "A tragedy has occurred. Hardcore character PLAYERNAME has fallen to MOBNAME1 MOBNAME2 (level KILLERLEVEL) at level PLAYERLEVEL..."
+	-- NAT = "A tragedy has occurred. Hardcore character PLAYERNAME died of natural causes at level PLAYERLEVEL..."
+	-- PvP = "A tragedy has occurred. Hardcore character PLAYERNAME has fallen in PvP to KILLERNAME at level PLAYERLEVEL..."
+
+	-- Example of /who result messages:
+	-- [PLAYERNAME]: Level PLAYERLEVEL PLAYERRACE PLAYERCLASS <PLAYERGUILD> - AREA
+	-- 1 player Total
+
+	-- Example of friend messages:
+	-- PLAYERNAME added to friends
+	-- PLAYERNAME removed from friends
+
+	local _, _, hcprogress = string.find(message, "(%a+) has reached level (%d%d) in Hardcore mode")
+	local _, _, hcimmortal = string.find(message, "(%a+) has transcended death and reached level 60")
+	local _, _, hcdeath = string.find(message,"A tragedy has occurred. Hardcore character (%a+)")
+	-- local _, _, infstart = string.find(arg1,"(%a+) has begun the Inferno Challenge")
+	-- local _, _, infdeath = string.find(arg1,"A tragedy has occurred. Inferno character (%a+)")
+
+	_, _, addedFriend = string.find(message,"(%a+) added to friends")
+	_, _, removedFriend = string.find(message,"(%a+) removed from friends")
+	_, _, alreadyFriend = string.find(message,"(%a+) is already your friend")
+
+	if hcprogress or hcimmortal then
+		local _, _, playerName = string.find(message,"(%a+) has")
+		local _, _, playerLevel = string.find(message,"reached level (%d+)")
+
+		table.insert(deaths, {
+			sdate = date("!%Y/%m/%d"),
+			stime = date("!%H:%M:%S"),
+			deathType = "LVL",
+			hcType = "HC",
+			zone = nil,
+			playerName = playerName,
+			playerLevel = playerLevel,
+			playerClass = nil,
+			info = nil
+		})
+
+		if HCDeath:friendSlots() then
+			HCDeath:AddFriends()
+			return
+		end
+	elseif infstart then
+		local _, _, playerName = string.find(message,"(%a+) has")
+
+		table.insert(deaths, {
+			sdate = date("!%Y/%m/%d"),
+			stime = date("!%H:%M:%S"),
+			deathType = "INFSTART",
+			hcType = "INF",
+			zone = nil,
+			playerName = playerName,
+			playerLevel = nil,
+			playerClass = nil,
+			info = nil
+		})
+
+		if HCDeath:friendSlots() then
+			HCDeath:AddFriends()
+			return
+		end
+	elseif hcdeath then --or infdeath then
+		local hcType = "HC"
+		-- local hcType
+		-- if hcdeath then
+		-- 	hcType = "HC"
+		-- elseif infdeath then
+		-- 	hcType = "INF"
+		-- end
+
+		local pvp, natural, playerLevel, deathType, killerName, killerLevel, killerClass
+		_, _, pvp = string.find(message,"(PvP)")
+		_, _, natural = string.find(message,"(natural causes)")
+		_, _, playerLevel = string.find(message,"at level (%d+)")
+
+		if pvp then
+			deathType = "PVP"
+			_, _, killerName = string.find(message,"to%s+(%a+)")
+		else
+			deathType = "PVE"
+			if natural then
+				killerName = "Natural Causes"
+				killerClass = "ENV"
+			else
+				_, _, killerName = string.find(message,"to%s+(.-)%s*%(")
+				_, _, killerLevel = string.find(message,"%(level%s*(.-)%).-at")
+				killerClass = "NPC"
+			end
+		end
+
+		table.insert(deaths, {
+			sdate = date("!%Y/%m/%d"),
+			stime = date("!%H:%M:%S"),
+			deathType = deathType,
+			hcType = hcType,
+			zone = nil,
+			playerName = hcdeath,
+			playerLevel = playerLevel,
+			playerClass = nil,
+			killerName = killerName,
+			killerLevel = killerLevel,
+			killerClass = killerClass,
+			lastWords = nil,
+			info = nil
+		})
+
+		if HCDeath:friendSlots() then
+			HCDeath:AddFriends()
+			return
+		end
+		return
+	end
+
+	if addedFriend or alreadyFriend then
+		if HCDeath:AddedFriend(addedFriend) or HCDeath:AddedFriend(alreadyFriend) then
+			HCDeath:LogDeath()
+			return
+		end
+	elseif HCDeath:AddedFriend(removedFriend) then
+		HCDeath:Toast()
+		return
+	end
+end
+
 local HookChatFrame_OnEvent = ChatFrame_OnEvent
 function ChatFrame_OnEvent(event)
 	if (event == "CHAT_MSG_SYSTEM") then
-		if testmsg then
-			arg1 = testmsg
-			testmsg = nil
-		end
-
 		-- Examples of Turtle WoW HC progress messages:
 		-- "PLAYERNAME has reached level 20/30/40/50 in Hardcore mode! Their ascendance towards immortality continues, however, so do the dangers they will face.
 		-- "PLAYERNAME has transcended death and reached level 60 on Hardcore mode without dying once! PLAYERNAME shall henceforth be known as the Immortal!"
@@ -582,118 +719,33 @@ function ChatFrame_OnEvent(event)
 		-- local _, _, infstart = string.find(arg1,"(%a+) has begun the Inferno Challenge")
 		-- local _, _, infdeath = string.find(arg1,"A tragedy has occurred. Inferno character (%a+)")
 
+		if not HCDeaths_Settings.message and (hcprogress or hcimmortal or hcdeath) then
+			return
+		end
+
 		_, _, addedFriend = string.find(arg1,"(%a+) added to friends")
 		_, _, removedFriend = string.find(arg1,"(%a+) removed from friends")
 		_, _, alreadyFriend = string.find(arg1,"(%a+) is already your friend")
-		
-		if hcprogress or hcimmortal then
-			HCDeath:systemMessage(arg1)
-			
-			local _, _, playerName = string.find(arg1,"(%a+) has")
-			local _, _, playerLevel = string.find(arg1,"reached level (%d+)")
 
-			table.insert(deaths, {
-				sdate = date("!%Y/%m/%d"),
-				stime = date("!%H:%M:%S"),
-				deathType = "LVL",
-				hcType = "HC",
-				zone = nil,
-				playerName = playerName,
-				playerLevel = playerLevel,
-				playerClass = nil,
-				info = nil
-			})
+		if addedFriend and hcdeathFriends[addedFriend] then
+			-- Addon added the name to friendlist, suppress the system message and track how many chat tabs would display the message
+			hcdeathFriends[addedFriend] = hcdeathFriends[addedFriend] + 1
+			return
+		end
 
-			if HCDeath:friendSlots() then
-				HCDeath:AddFriends()
-				return
-			end
-		elseif infstart then
-			HCDeath:systemMessage(arg1)
-			
-			local _, _, playerName = string.find(arg1,"(%a+) has")
-
-			table.insert(deaths, {
-				sdate = date("!%Y/%m/%d"),
-				stime = date("!%H:%M:%S"),
-				deathType = "INFSTART",
-				hcType = "INF",
-				zone = nil,
-				playerName = playerName,
-				playerLevel = nil,
-				playerClass = nil,
-				info = nil
-			})
-
-			if HCDeath:friendSlots() then
-				HCDeath:AddFriends()
-				return
-			end
-		elseif hcdeath then --or infdeath then
-			HCDeath:systemMessage(arg1)
-
-			local hcType = "HC"
-			-- local hcType 
-			-- if hcdeath then
-			-- 	hcType = "HC"
-			-- elseif infdeath then
-			-- 	hcType = "INF"
-			-- end			
-
-			local pvp, natural, playerLevel, deathType, killerName, killerLevel, killerClass
-			_, _, pvp = string.find(arg1,"(PvP)")
-			_, _, natural = string.find(arg1,"(natural causes)")
-			_, _, playerLevel = string.find(arg1,"at level (%d+)")
-
-			if pvp then 
-				deathType = "PVP"
-				_, _, killerName = string.find(arg1,"to%s+(%a+)")
-			else
-				deathType = "PVE"
-				if natural then
-					killerName = "Natural Causes"
-					killerClass = "ENV"
-				else
-					_, _, killerName = string.find(arg1,"to%s+(.-)%s*%(")
-					_, _, killerLevel = string.find(arg1,"%(level%s*(.-)%).-at")
-					killerClass = "NPC"
-				end
-			end
-
-			table.insert(deaths, {
-				sdate = date("!%Y/%m/%d"),
-				stime = date("!%H:%M:%S"),
-				deathType = deathType,
-				hcType = hcType,
-				zone = nil,
-				playerName = hcdeath,
-				playerLevel = playerLevel,
-				playerClass = nil,
-				killerName = killerName,
-				killerLevel = killerLevel,
-				killerClass = killerClass,
-				lastWords = nil,
-				info = nil
-			})
-
-			if HCDeath:friendSlots() then
-				HCDeath:AddFriends()
-				return
+		if removedFriend and hcdeathFriends[removedFriend] then
+			-- Addon removed the name from friendlist, suppress the system message and decrease the counter of tracked chat tabs
+			hcdeathFriends[removedFriend] = hcdeathFriends[removedFriend] - 1
+			if hcdeathFriends[removedFriend] == 1 then
+				-- All chat tabs have had the system message suppressed, key can be removed from table
+				hcdeathFriends[removedFriend] = nil
 			end
 			return
 		end
 
-		if addedFriend or alreadyFriend then
-			if HCDeath:AddedFriend(addedFriend) or HCDeath:AddedFriend(alreadyFriend) then
-				HCDeath:LogDeath()
-				return
-			end
-		elseif HCDeath:AddedFriend(removedFriend) then
-			HCDeath:Toast()
+		if alreadyFriend and hcdeathFriends[alreadyFriend] then
 			return
 		end
-	elseif (event == "CHAT_MSG_SAY" or event == "CHAT_MSG_YELL" or event == "CHAT_MSG_GUILD" or event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_RAID" or event == "CHAT_MSG_RAID_LEADER") then
-		HCDeaths_LastWords[arg2] = HCDeath:extractLinks(arg1)
 	end
 
 	HookChatFrame_OnEvent(event)
@@ -1117,16 +1169,37 @@ function HCDeath:LogScale()
 end
 
 HCDeath:RegisterEvent("PLAYER_ENTERING_WORLD")
+HCDeath:RegisterEvent("CHAT_MSG_SYSTEM")
+HCDeath:RegisterEvent("CHAT_MSG_SAY")
+HCDeath:RegisterEvent("CHAT_MSG_YELL")
+HCDeath:RegisterEvent("CHAT_MSG_GUILD")
+HCDeath:RegisterEvent("CHAT_MSG_PARTY")
+HCDeath:RegisterEvent("CHAT_MSG_RAID")
+HCDeath:RegisterEvent("CHAT_MSG_RAID_LEADER")
 HCDeath:SetScript("OnEvent", function()
-	if not this.loaded then
+	if event == "PLAYER_ENTERING_WORLD" and not this.loaded then
 		this.loaded = true
 		SLASH_HCDEATHS1 = "/hcdeaths"
 		SLASH_HCDEATHS2 = "/hcd"
 		SlashCmdList["HCDEATHS"] = HCDeaths_commands
 		HCDeath:Check_pfUI()
 		HCDeath:ToastScale()
-		HCDeath:ToggleLog()			
+		HCDeath:ToggleLog()
 		HCDeath:print("HCDeaths Loaded! /hcdeaths or /hcd")
+	end
+
+	if event == "CHAT_MSG_SAY" or event == "CHAT_MSG_YELL" or event == "CHAT_MSG_GUILD" or event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_RAID" or event == "CHAT_MSG_RAID_LEADER" then
+		HCDeaths_LastWords[arg2] = HCDeath:extractLinks(arg1)
+	end
+
+	if event == "CHAT_MSG_SYSTEM" then
+		if testmsg then
+			arg1 = testmsg
+			testmsg = nil
+			print("TEST SYSTEM MESSAGE: " .. arg1)
+		end
+
+		HCDeath:handleSystemMessages(arg1)
 	end
 end)
 
