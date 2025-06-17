@@ -382,71 +382,72 @@ end
 
 local hcdeathFriends = {}
 
-function HCDeath:LogDeath() -- Called by add friend system message
+function HCDeath:LogDeath(player) -- Called by add friend system message
 	for _, hcdeath in pairs(deaths) do
-		if not hcdeath.playerClass then
-			hcdeath.playerLevel, hcdeath.playerClass, hcdeath.zone = HCDeath:GetFriendInfo(hcdeath.playerName)
+		if player == hcdeath.playerName then
+			if not hcdeath.playerClass then
+				hcdeath.playerLevel, hcdeath.playerClass, hcdeath.zone = HCDeath:GetFriendInfo(hcdeath.playerName)
 
-			if (hcdeath.deathType ~= "PVP") and hcdeath.playerClass then
-				hcdeath.info = true
-			end
-		end
-
-		if (hcdeath.deathType == "PVP") and hcdeath.playerClass and (not hcdeath.killerClass) then
-			hcdeath.killerLevel, hcdeath.killerClass = HCDeath:GetFriendInfo(hcdeath.killerName)
-			if hcdeath.killerClass then
-				hcdeath.info = true
-			end
-		end
-
-		if hcdeath.info then
-			-- check if we already have a death for the player, if we do don't log
-			local match
-			for _, death in pairs(HCDeaths) do
-				if death.playerName == hcdeath.playerName then
-					match = true
-					break
+				if (hcdeath.deathType ~= "PVP") and hcdeath.playerClass then
+					hcdeath.info = true
 				end
 			end
 
-			hcdeath.lastWords = tostring(HCDeaths_LastWords[hcdeath.playerName])
-
-			if not match then
-				table.insert(HCDeaths, {
-					sdate = hcdeath.sdate,
-					stime = hcdeath.stime,
-					deathType = hcdeath.deathType,
-					hcType = hcdeath.hcType,
-					zone = hcdeath.zone,
-					lastWords = hcdeath.lastWords,
-					playerName = hcdeath.playerName,
-					playerLevel = hcdeath.playerLevel,
-					playerClass = hcdeath.playerClass,
-					killerName = tostring(hcdeath.killerName),
-					killerLevel = tostring(hcdeath.killerLevel),
-					killerClass = tostring(hcdeath.killerClass)
-				})
-			end
-
-			-- Remove friends
-			if hcdeath.addedPlayer then
-				RemoveFriend(hcdeath.playerName)
-			else
-				-- already a friend
-				if (hcdeath.deathType ~= "PVP") then
-					HCDeath:Toast()
+			if (hcdeath.deathType == "PVP") and hcdeath.playerClass and (not hcdeath.killerClass) then
+				hcdeath.killerLevel, hcdeath.killerClass = HCDeath:GetFriendInfo(hcdeath.killerName)
+				if hcdeath.killerClass then
+					hcdeath.info = true
 				end
 			end
 
-			if hcdeath.addedKiller then
-				RemoveFriend(hcdeath.killerName)
-			else
-				-- already a friend
-				if (hcdeath.deathType == "PVP") then
-					HCDeath:Toast()
+			if hcdeath.info then
+				-- check if we already have a death for the player, if we do don't log
+				local match
+				for _, death in pairs(HCDeaths) do
+					if death.playerName == hcdeath.playerName then
+						match = true
+						break
+					end
+				end
+
+				hcdeath.lastWords = tostring(HCDeaths_LastWords[hcdeath.playerName])
+
+				if not match then
+					table.insert(HCDeaths, {
+						sdate = hcdeath.sdate,
+						stime = hcdeath.stime,
+						deathType = hcdeath.deathType,
+						hcType = hcdeath.hcType,
+						zone = hcdeath.zone,
+						lastWords = hcdeath.lastWords,
+						playerName = hcdeath.playerName,
+						playerLevel = hcdeath.playerLevel,
+						playerClass = hcdeath.playerClass,
+						killerName = tostring(hcdeath.killerName),
+						killerLevel = tostring(hcdeath.killerLevel),
+						killerClass = tostring(hcdeath.killerClass)
+					})
+				end
+
+				-- Remove friends
+				if hcdeath.addedPlayer then
+					RemoveFriend(hcdeath.playerName)
+				else
+					-- already a friend
+					if (hcdeath.deathType ~= "PVP") then
+						HCDeath:Toast()
+					end
+				end
+
+				if hcdeath.addedKiller then
+					RemoveFriend(hcdeath.killerName)
+				else
+					-- already a friend
+					if (hcdeath.deathType == "PVP") then
+						HCDeath:Toast()
+					end
 				end
 			end
-
 		end
 	end
 end
@@ -461,32 +462,34 @@ function HCDeath:GetFriendInfo(player)
 	end
 end
 
-function HCDeath:AddFriends()
+function HCDeath:AddFriend(player)
 	for _, hcdeath in pairs(deaths) do
-		if not HCDeath:isFriend(hcdeath.playerName) then
-			-- Mark this name was added to friendlist by addon
-			hcdeathFriends[hcdeath.playerName] = 1
-			AddFriend(hcdeath.playerName)
-			hcdeath.addedPlayer = true
-		else
-			-- player is already your friend
-			-- if pve death we can log, else we need to add the killer
-			if (hcdeath.deathType == "PVE") then
-				HCDeath:LogDeath()
-			end
-		end
-
-		if (hcdeath.deathType == "PVP") then
-			if not HCDeath:isFriend(hcdeath.killerName) then
+		if player == hcdeath.playerName then
+			if not HCDeath:isFriend(hcdeath.playerName) then
 				-- Mark this name was added to friendlist by addon
-				hcdeathFriends[hcdeath.killerName] = 1
-				AddFriend(hcdeath.killerName)
-				hcdeath.addedKiller = true
+				hcdeathFriends[hcdeath.playerName] = 1
+				AddFriend(hcdeath.playerName)
+				hcdeath.addedPlayer = true
 			else
 				-- player is already your friend
-				HCDeath:LogDeath()
+				-- if pve death we can log, else we need to add the killer
+				if (hcdeath.deathType == "PVE") then
+					HCDeath:LogDeath(player)
+				end
 			end
-		end		
+
+			if (hcdeath.deathType == "PVP") then
+				if not HCDeath:isFriend(hcdeath.killerName) then
+					-- Mark this name was added to friendlist by addon
+					hcdeathFriends[hcdeath.killerName] = 1
+					AddFriend(hcdeath.killerName)
+					hcdeath.addedKiller = true
+				else
+					-- player is already your friend
+					HCDeath:LogDeath(player)
+				end
+			end
+		end
 	end
 end
 
@@ -616,7 +619,7 @@ function HCDeath:handleSystemMessages(message)
 		})
 
 		if HCDeath:friendSlots() then
-			HCDeath:AddFriends()
+			HCDeath:AddFriend(playerName)
 			return
 		end
 	elseif infstart then
@@ -635,7 +638,7 @@ function HCDeath:handleSystemMessages(message)
 		})
 
 		if HCDeath:friendSlots() then
-			HCDeath:AddFriends()
+			HCDeath:AddFriend(playerName)
 			return
 		end
 	elseif hcdeath then --or infdeath then
@@ -684,7 +687,7 @@ function HCDeath:handleSystemMessages(message)
 		})
 
 		if HCDeath:friendSlots() then
-			HCDeath:AddFriends()
+			HCDeath:AddFriend(hcdeath)
 			return
 		end
 		return
@@ -692,7 +695,8 @@ function HCDeath:handleSystemMessages(message)
 
 	if addedFriend or alreadyFriend then
 		if HCDeath:AddedFriend(addedFriend) or HCDeath:AddedFriend(alreadyFriend) then
-			HCDeath:LogDeath()
+			local player = addedFriend and addedFriend or alreadyFriend
+			HCDeath:LogDeath(player)
 			return
 		end
 	elseif HCDeath:AddedFriend(removedFriend) then
