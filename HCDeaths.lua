@@ -388,7 +388,7 @@ function HCDeath:LogDeath() -- Called by add friend system message
 			hcdeath.playerLevel, hcdeath.playerClass, hcdeath.zone = HCDeath:GetFriendInfo(hcdeath.playerName)
 
 			if (hcdeath.deathType ~= "PVP") and hcdeath.playerClass then
-				hcdeath.info = true			
+				hcdeath.info = true
 			end
 		end
 
@@ -427,8 +427,8 @@ function HCDeath:LogDeath() -- Called by add friend system message
 					killerClass = tostring(hcdeath.killerClass)
 				})
 			end
-			
-			-- Remove friends				
+
+			-- Remove friends
 			if hcdeath.addedPlayer then
 				RemoveFriend(hcdeath.playerName)
 			else
@@ -528,14 +528,28 @@ function HCDeath:systemMessage(message)
 	end
 end
 
-local testmsg
-function HCDeath:test(dtype, player, plevel, killer)	
+function HCDeath:test(dtype, player, plevel, killer)
+	local testmsg
 	if dtype == "pve" then
 		testmsg = "A tragedy has occurred. Hardcore character "..player.." died of natural causes at level "..plevel..". May this sacrifice not be forgotten."
 	elseif dtype == "pvp" then
 		testmsg = "A tragedy has occurred. Hardcore character "..player.." has fallen in PvP to "..killer.." at level "..plevel.."."
 	end
-	SendChatMessage(".server info")
+
+	HCDeath:handleSystemMessages(testmsg)
+
+	local info = ChatTypeInfo["SYSTEM"]
+	for i = 1, NUM_CHAT_WINDOWS do
+		local frame = getglobal("ChatFrame"..i)
+		if frame and frame.messageTypeList then
+			for _, messageType in ipairs(frame.messageTypeList) do
+				if messageType == "SYSTEM" then
+					frame:AddMessage(testmsg, info.r, info.g, info.b, info.id)
+					break
+				end
+			end
+		end
+	end
 end
 
 function HCDeath:extractLinks(str)
@@ -1193,12 +1207,6 @@ HCDeath:SetScript("OnEvent", function()
 	end
 
 	if event == "CHAT_MSG_SYSTEM" then
-		if testmsg then
-			arg1 = testmsg
-			testmsg = nil
-			print("TEST SYSTEM MESSAGE: " .. arg1)
-		end
-
 		HCDeath:handleSystemMessages(arg1)
 	end
 end)
