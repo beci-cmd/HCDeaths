@@ -384,9 +384,10 @@ local hcdeathFriends = {}
 
 function HCDeath:LogDeath(player) -- Called by add friend system message
 	for _, hcdeath in pairs(deaths) do
-		if player == hcdeath.playerName then
+		if (hcdeath.deathType ~= "PVP" and player == hcdeath.playerName) or (hcdeath.deathType == "PVP" and player == hcdeath.killerName) then
 			if not hcdeath.playerClass then
-				hcdeath.playerLevel, hcdeath.playerClass, hcdeath.zone = HCDeath:GetFriendInfo(hcdeath.playerName)
+				local playerLevel, playerClass, zone = HCDeath:GetFriendInfo(hcdeath.playerName)
+				hcdeath.playerLevel, hcdeath.playerClass, hcdeath.zone = hcdeath.playerLevel and hcdeath.playerLevel or playerLevel, playerClass, zone
 
 				if (hcdeath.deathType ~= "PVP") and hcdeath.playerClass then
 					hcdeath.info = true
@@ -394,40 +395,30 @@ function HCDeath:LogDeath(player) -- Called by add friend system message
 			end
 
 			if (hcdeath.deathType == "PVP") and hcdeath.playerClass and (not hcdeath.killerClass) then
-				hcdeath.killerLevel, hcdeath.killerClass = HCDeath:GetFriendInfo(hcdeath.killerName)
+				local killerLevel, killerClass = HCDeath:GetFriendInfo(hcdeath.killerName)
+				hcdeath.killerLevel, hcdeath.killerClass = hcdeath.killerLevel and hcdeath.killerLevel or killerLevel, killerClass
 				if hcdeath.killerClass then
 					hcdeath.info = true
 				end
 			end
 
 			if hcdeath.info then
-				-- check if we already have a death for the player, if we do don't log
-				local match
-				for _, death in pairs(HCDeaths) do
-					if death.playerName == hcdeath.playerName then
-						match = true
-						break
-					end
-				end
-
 				hcdeath.lastWords = tostring(HCDeaths_LastWords[hcdeath.playerName])
 
-				if not match then
-					table.insert(HCDeaths, {
-						sdate = hcdeath.sdate,
-						stime = hcdeath.stime,
-						deathType = hcdeath.deathType,
-						hcType = hcdeath.hcType,
-						zone = hcdeath.zone,
-						lastWords = hcdeath.lastWords,
-						playerName = hcdeath.playerName,
-						playerLevel = hcdeath.playerLevel,
-						playerClass = hcdeath.playerClass,
-						killerName = tostring(hcdeath.killerName),
-						killerLevel = tostring(hcdeath.killerLevel),
-						killerClass = tostring(hcdeath.killerClass)
-					})
-				end
+				table.insert(HCDeaths, {
+					sdate = hcdeath.sdate,
+					stime = hcdeath.stime,
+					deathType = hcdeath.deathType,
+					hcType = hcdeath.hcType,
+					zone = hcdeath.zone,
+					lastWords = hcdeath.lastWords,
+					playerName = hcdeath.playerName,
+					playerLevel = hcdeath.playerLevel,
+					playerClass = hcdeath.playerClass,
+					killerName = tostring(hcdeath.killerName),
+					killerLevel = tostring(hcdeath.killerLevel),
+					killerClass = tostring(hcdeath.killerClass)
+				})
 
 				-- Remove friends
 				if hcdeath.addedPlayer then
@@ -531,12 +522,16 @@ function HCDeath:systemMessage(message)
 	end
 end
 
-function HCDeath:test(dtype, player, plevel, killer)
+function HCDeath:test(dtype, player, plevel, killer, klevel, zone)
 	local testmsg
-	if dtype == "pve" then
-		testmsg = "A tragedy has occurred. Hardcore character "..player.." died of natural causes at level "..plevel..". May this sacrifice not be forgotten."
+	if dtype == "npc" then
+		testmsg = "A tragedy has occurred. Hardcore character "..player.." (level "..plevel..") has fallen to "..killer.." (level "..klevel..") in "..zone..". May this sacrifice not be forgotten."
+	elseif dtype == "pve" then
+		testmsg = "A tragedy has occurred. Hardcore character "..player.." (level "..plevel..") died of natural causes in "..zone..". May this sacrifice not be forgotten."
 	elseif dtype == "pvp" then
-		testmsg = "A tragedy has occurred. Hardcore character "..player.." has fallen in PvP to "..killer.." at level "..plevel.."."
+		testmsg = "A tragedy has occurred. Hardcore character "..player.." (level "..plevel..") has fallen in PvP to "..killer.." (level "..klevel..") in "..zone..". May this sacrifice not be forgotten."
+	elseif dtype == "drown" then
+		testmsg = "A tragedy has occurred. Hardcore character "..player.." (level "..plevel..") has drowned in "..zone..". May this sacrifice not be forgotten."
 	end
 
 	HCDeath:handleSystemMessages(testmsg)
@@ -580,9 +575,10 @@ function HCDeath:handleSystemMessages(message)
 	-- PVP = ??
 
 	-- Examples of Turtle WoW Hardcore messages:
-	-- PVE = "A tragedy has occurred. Hardcore character PLAYERNAME has fallen to MOBNAME1 MOBNAME2 (level KILLERLEVEL) at level PLAYERLEVEL..."
-	-- NAT = "A tragedy has occurred. Hardcore character PLAYERNAME died of natural causes at level PLAYERLEVEL..."
-	-- PvP = "A tragedy has occurred. Hardcore character PLAYERNAME has fallen in PvP to KILLERNAME at level PLAYERLEVEL..."
+	-- PVE   = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) has fallen to MOBNAME1 MOBNAME2 (level KILLERLEVEL) in ZONE. May this sacrifice not be forgotten."
+	-- NAT   = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) died of natural causes in ZONE. May this sacrifice not be forgotten."
+	-- PvP   = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) has fallen in PvP to KILLERNAME (level PLEVEL) in ZONE. May this sacrifice not be forgotten."
+	-- DROWN = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) has drowned in ZONE. May this sacrifice not be forgotten."
 
 	-- Example of /who result messages:
 	-- [PLAYERNAME]: Level PLAYERLEVEL PLAYERRACE PLAYERCLASS <PLAYERGUILD> - AREA
@@ -650,22 +646,27 @@ function HCDeath:handleSystemMessages(message)
 		-- 	hcType = "INF"
 		-- end
 
-		local pvp, natural, playerLevel, deathType, killerName, killerLevel, killerClass
+		local pvp, natural, drown, playerLevel, deathType, killerName, killerLevel, killerClass
 		_, _, pvp = string.find(message,"(PvP)")
 		_, _, natural = string.find(message,"(natural causes)")
-		_, _, playerLevel = string.find(message,"at level (%d+)")
+		_, _, drown = string.find(message,"(has drowned in)")
+		_, _, playerLevel = string.find(message,"character.-%(level%s+(%d+)")
 
 		if pvp then
 			deathType = "PVP"
 			_, _, killerName = string.find(message,"to%s+(%a+)")
+			_, _, killerLevel = string.find(message,"to.-%(level%s*(%d+)")
 		else
 			deathType = "PVE"
 			if natural then
 				killerName = "Natural Causes"
 				killerClass = "ENV"
+			elseif drown then
+				killerName = "Drowning"
+				killerClass = "ENV"
 			else
 				_, _, killerName = string.find(message,"to%s+(.-)%s*%(")
-				_, _, killerLevel = string.find(message,"%(level%s*(.-)%).-at")
+				_, _, killerLevel = string.find(message,"to.-%(level%s*(%d+)")
 				killerClass = "NPC"
 			end
 		end
@@ -719,9 +720,10 @@ function ChatFrame_OnEvent(event)
 		-- PVP = ??
 
 		-- Examples of Turtle WoW Hardcore messages:
-		-- PVE = "A tragedy has occurred. Hardcore character PLAYERNAME has fallen to MOBNAME1 MOBNAME2 (level KILLERLEVEL) at level PLAYERLEVEL..."
-		-- NAT = "A tragedy has occurred. Hardcore character PLAYERNAME died of natural causes at level PLAYERLEVEL..."
-		-- PvP = "A tragedy has occurred. Hardcore character PLAYERNAME has fallen in PvP to KILLERNAME at level PLAYERLEVEL..."
+		-- PVE   = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) has fallen to MOBNAME1 MOBNAME2 (level KILLERLEVEL) in ZONE. May this sacrifice not be forgotten."
+		-- NAT   = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) died of natural causes in ZONE. May this sacrifice not be forgotten."
+		-- PvP   = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) has fallen in PvP to KILLERNAME (level PLEVEL) in ZONE. May this sacrifice not be forgotten."
+		-- DROWN = "A tragedy has occurred. Hardcore character PLAYERNAME (level PLEVEL) has drowned in ZONE. May this sacrifice not be forgotten."
 
 		-- Example of /who result messages:
 		-- [PLAYERNAME]: Level PLAYERLEVEL PLAYERRACE PLAYERCLASS <PLAYERGUILD> - AREA
@@ -890,9 +892,10 @@ local function HCDeaths_commands(msg, editbox)
         HCDeath:reset()
 		HCDeath:print("settings reset")
 	elseif msg == "test" then
-		-- HCDeath:test("pve", "player", "level")
-		-- HCDeath:test("pvp", "player", "level", "killer")
-		HCDeath:test("pve", "Tents", "10")
+		HCDeath:test("npc", "Tents", "15", "Fiery Bat", "12", "Brill")
+		-- HCDeath:test("pve", "Tents", "12", nil, nil, "Brill")
+		-- HCDeath:test("drown", "Tents", "10", nil, nil, "Goldshire")
+		-- HCDeath:test("pvp", "Tents", "11", "Vents", "12", "Elwynn Forest")
     else
 		HCDeath:print("commands:")
 		HCDeath:print("/hcd message - toggle system death messages")
